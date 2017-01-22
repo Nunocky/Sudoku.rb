@@ -186,7 +186,43 @@ module Sudoku
     end
 
     # 同一のn個の候補を持つセル→そのセルがn個ならそれらのセルでその候補値を専有できる。グループ内でその候補値は除外
-    def filter_combination2(base_group)
+    def filter_combination2(group)
+      pair0 = pair1 = pair2 = nil
+
+      # 最初のセル
+      group.each do |cell|
+        next if cell.candidates.count != 2
+        if pair0 == nil
+          pair0 = cell
+          next
+        end
+
+        if cell.candidates[0] == pair0.candidates[0] && cell.candidates[1] == pair0.candidates[1]
+          if pair1 == nil
+            pair1 = cell
+          else
+            pair2 = cell
+          end
+        end
+
+        if pair2 != nil
+          return # 同一候補のセルが3つ以上→対象外
+        end
+
+        v0 = pair0.candidates[0]
+        v1 = pair0.candidates[1]
+        @logger.debug("combination2 found #{v0}, #{v1}")
+
+        group.each do |c|
+          next if c == pair0 || c == pair1
+          c.candidates.delete(v0)
+          c.candidates.delete(v1)
+        end
+
+      end
+    end
+
+    def filter_last_one(group)
     end
 
 
@@ -221,3 +257,25 @@ if __FILE__ == $0
   solver.show
 
 end
+
+
+=begin
+
+combination2の実装
+
+group 2: [], [], [2, 8, 9], [], [], [], [8, 9], [], [8, 9],
+group 12: [], [], [], [], [8, 9], [8, 9], [5, 8, 9], [], [],
+group 13: [4, 7], [4, 7], [], [3, 4, 6, 8, 9], [1, 2, 4, 6, 8, 9], [2, 3, 6, 8, 9], [8, 9], [6, 9], [8, 9],
+group 20: [], [3, 6, 7, 9], [3, 7, 9], [3, 7, 8], [], [], [8, 9], [], [8, 9],
+group 22: [], [3, 4, 6, 8, 9], [4, 6], [8, 9], [1, 2, 4, 6, 8, 9], [4, 6], [8, 9], [2, 3, 6, 8, 9], [],
+group 25: [5, 8, 9], [8, 9], [], [], [6, 9], [], [], [8, 9], [],
+
+各グループに対して
+
+要素2個のセルを見つける
+同じ要素であり、セルが2個なら
+その候補はそれらのセルで共有される。他のセルではそれらの候補は除外して良い
+
+cell0 = cell1 = nil
+
+=end
