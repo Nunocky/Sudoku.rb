@@ -40,8 +40,6 @@ module Sudoku
   end
 
   class Solver
-#    attr_reader :value_changed
-
     def initialize
       @logger = Logger.new(STDOUT)
 
@@ -155,22 +153,22 @@ module Sudoku
       value_changed = false
 
       # 基本フィルタ (確定候補をもとにふるい落とす)
-      value_changed ||= filter0()
+      value_changed |= filter0()
 
       @group.each do |g|
         # コンビネーション2のふるい
-        value_changed ||= filter_combination2(g)
+        value_changed |= filter_combination2(g)
 
         # 最後の1要素
-        value_changed ||= filter_last_one(g)
+        value_changed |= filter_last_one(g)
       end
-pp value_changed
+
       value_changed
     end
 
     # 基本フィルタ。候補が一つだけのセルは確定
     def filter0()
-@logger.debug("filter0")
+      @logger.debug("filter0")
       updated = false
 
       value_changed = false
@@ -208,50 +206,54 @@ pp value_changed
 
     # 同一のn個の候補を持つセル→そのセルがn個ならそれらのセルでその候補値を専有できる。グループ内でその候補値は除外
     def filter_combination2(group)
-@logger.debug("filter_combination2: group #{group.id}")
-
+      @logger.debug("filter_combination2: group #{group.id}")
       value_changed = false
 
-      pair0, pair1, pair2 = nil, nil, nil
-      v0, v1 = 0, 0
-      group.each do |cell|
-        next if cell.candidates.count != 2
+      # TODO 2個目のペアも見つけられるようにする
 
-        # 最初のセル
-        if pair0 == nil
-          pair0 = cell
-          v0    = pair0.candidates[0]
-          v1    = pair0.candidates[1]
-          next
+      (0...9).each do |i|
+        pair0, pair1, pair2 = nil, nil, nil
+        v0, v1 = 0, 0
+
+        next if group[i].candidates.count != 2
+
+        # 最初のペア発見
+        pair0 = group[i]
+        v0    = pair0.candidates[0]
+        v1    = pair0.candidates[1]
+
+        (i+1...9).each do |j|
+          cell = group[j]
+          next if cell.candidates.count != 2
+
+          # 2個目以降のペア発見
+          if cell.candidates[0] == v0 && cell.candidates[1] == v1
+            if pair1 == nil
+              pair1 = cell
+            else
+              pair2 = cell
+            end
+          end
         end
 
-        # 2個目以降のペア発見
-        if cell.candidates[0] == v0 && cell.candidates[1] == v1
-          if pair1 == nil
-            pair1 = cell
-          else
-            pair2 = cell
+        # ペアが2個のときだけ処理
+        return if pair1 == nil || pair2 != nil
+
+        @logger.debug("group #{group.id}: combination2 (#{v0}, #{v1}) found.")
+
+        group.each do |c|
+          next if c == pair0 || c == pair1
+          c.candidates.delete(v0)
+          c.candidates.delete(v1)
+          if c.candidates.count == 1
+            c.value = c.candidates[0]
+            value_changed = true
+            @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
           end
         end
       end
 
-      # ペアが2個のときだけ処理
-      return if pair1 == nil || pair2 != nil
-
-      @logger.debug("group #{group.id}: combination2 (#{v0}, #{v1}) found.")
-
-      group.each do |c|
-        next if c == pair0 || c == pair1
-        c.candidates.delete(v0)
-        c.candidates.delete(v1)
-        if c.candidates.count == 1
-          c.value = c.candidates[0]
-          value_changed = true
-          @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
-        end
-      end
-
-      return value_changed
+      value_changed
     end
 
     def filter_last_one(group)
@@ -303,7 +305,7 @@ if __FILE__ == $0
     solver.show
     solver.dump
     n += 1
-    break if !value_changed
+    break if value_changed == false
   end
 
   if solver.solved?
@@ -319,5 +321,11 @@ end
 
 
 =begin
+
+group 13: [4, 7], [4, 7], [], [3, 8, 9], [1, 2, 8, 9], [2, 3, 8, 9], [8, 9], [], [8, 9], 
+2個めのペア[8,9]を見つけられていない
+
+group 22: [], [3, 8, 9], [4, 6], [8, 9], [1, 2, 8, 9], [4, 6], [8, 9], [2, 3, 8, 9], [], 
+2個めのペア[8,9]を見つけられていない
 
 =end
