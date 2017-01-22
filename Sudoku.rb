@@ -28,10 +28,19 @@ module Sudoku
       @groups = []
       @candidates = [1,2,3,4,5,6,7,8,9]
     end
+
+    def value=(v)
+      @value = v
+      @candidates = []
+    end
+
+    def fixed?
+      @value != 0
+    end
   end
 
   class Solver
-    attr_reader :value_changed
+#    attr_reader :value_changed
 
     def initialize
       @logger = Logger.new(STDOUT)
@@ -102,9 +111,7 @@ module Sudoku
           line.each_char do |c|
             cell = @cell[y*9+x]
             if c != '.'
-#              puts "#{c}!"
-              cell.value      = c.to_i
-              cell.candidates = []
+              cell.value = c.to_i
             end
             x += 1
           end
@@ -139,90 +146,136 @@ module Sudoku
 
     def solved?
       @cell.each do |c|
-        return FALSE if c.value == 0
+        return false if c.value == 0
       end
-      TRUE
+      true
     end
 
     def exec_step
-      @value_changed = FALSE
+      value_changed = false
 
       # 基本フィルタ (確定候補をもとにふるい落とす)
-      filter0
+      value_changed ||= filter0()
 
-      # コンビネーション2のふるい
       @group.each do |g|
-        filter_combination2(g)
+        # コンビネーション2のふるい
+        value_changed ||= filter_combination2(g)
+
+        # 最後の1要素
+        value_changed ||= filter_last_one(g)
       end
+pp value_changed
+      value_changed
     end
 
     # 基本フィルタ。候補が一つだけのセルは確定
     def filter0()
+@logger.debug("filter0")
+      updated = false
+
+      value_changed = false
+
       @cell.each do |cell|
         next if cell.value != 0 # すでに確定しているセルは除外
 
-@logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
+        @logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
 
         # cellが所属しているグループの各セルについて、確定していたらそのセルの値を候補から除外
         cell.groups.each do |group|
-@logger.debug( " looking group #{group.id}")
+          @logger.debug( " looking group #{group.id}")
           group.each do |c|
             next if c.value == 0
-            cell.candidates.delete(c.value)
-@logger.debug( "  delete value #{c.value}")
+            if cell.candidates.include?(c.value)
+              cell.candidates.delete(c.value)
+              updated = true
+              @logger.debug( "  delete value #{c.value}")
+            end
           end
         end
 
-@logger.debug( " updated candidates: #{cell.candidates}")
+        @logger.debug( " updated candidates: #{cell.candidates}")        if updated
 
         # 確定したら更新
         if cell.candidates.count == 1
-          cell.value      = cell.candidates[0]
-          cell.candidates = []
-          @value_changed   = TRUE
-@logger.debug( " fixed: #{cell.value}")
+          cell.value = cell.candidates[0]
+          value_changed = true
+          @logger.debug( " fixed[0]: cell(#{cell.x}, #{cell.y}) = #{cell.value}")
         end
       end
+
+      return value_changed
     end
 
     # 同一のn個の候補を持つセル→そのセルがn個ならそれらのセルでその候補値を専有できる。グループ内でその候補値は除外
     def filter_combination2(group)
-      pair0 = pair1 = pair2 = nil
+@logger.debug("filter_combination2: group #{group.id}")
 
-      # 最初のセル
+      value_changed = false
+
+      pair0, pair1, pair2 = nil, nil, nil
+      v0, v1 = 0, 0
       group.each do |cell|
         next if cell.candidates.count != 2
+
+        # 最初のセル
         if pair0 == nil
           pair0 = cell
+          v0    = pair0.candidates[0]
+          v1    = pair0.candidates[1]
           next
         end
 
-        if cell.candidates[0] == pair0.candidates[0] && cell.candidates[1] == pair0.candidates[1]
+        # 2個目以降のペア発見
+        if cell.candidates[0] == v0 && cell.candidates[1] == v1
           if pair1 == nil
             pair1 = cell
           else
             pair2 = cell
           end
         end
-
-        if pair2 != nil
-          return # 同一候補のセルが3つ以上→対象外
-        end
-
-        v0 = pair0.candidates[0]
-        v1 = pair0.candidates[1]
-        @logger.debug("combination2 found #{v0}, #{v1}")
-
-        group.each do |c|
-          next if c == pair0 || c == pair1
-          c.candidates.delete(v0)
-          c.candidates.delete(v1)
-        end
-
       end
+
+      # ペアが2個のときだけ処理
+      return if pair1 == nil || pair2 != nil
+
+      @logger.debug("group #{group.id}: combination2 (#{v0}, #{v1}) found.")
+
+      group.each do |c|
+        next if c == pair0 || c == pair1
+        c.candidates.delete(v0)
+        c.candidates.delete(v1)
+        if c.candidates.count == 1
+          c.value = c.candidates[0]
+          value_changed = true
+          @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
+        end
+      end
+
+      return value_changed
     end
 
     def filter_last_one(group)
+
+      value_changed = false
+      cell_last_one = nil
+      candidates = [1,2,3,4,5,6,7,8,9]
+
+      group.each do |cell|
+        if cell.fixed?
+          candidates.delete(cell.value)
+        else
+          cell_last_one = cell
+        end
+      end
+
+      if candidates.count == 1 && cell_last_one != nil
+        cell_last_one.value = candidates[0]
+        value_changed = true
+        @logger.debug("filter_last_one: group #{group.id}")
+        @logger.debug( " fixed[2]: cell(#{cell_last_one.x}, #{cell_last_one.y}) = #{cell_last_one.value}")
+      end
+
+      return value_changed
     end
 
 
@@ -236,7 +289,7 @@ if __FILE__ == $0
   # ファイルを直接実行した時のコードをここに
   solver = Sudoku::Solver.new
 
-  solver.load("ex1.sudoku")
+  solver.load(ARGV[0])
 
   solver.show
 
@@ -246,36 +299,25 @@ if __FILE__ == $0
     puts "#{n}"
     puts "--------------------"
 
-    solver.exec_step
+    value_changed = solver.exec_step
     solver.show
     solver.dump
-    break if !solver.value_changed
     n += 1
+    break if !value_changed
   end
 
-  puts "--------------------\ndone."
+  if solver.solved?
+    puts "--------------------"
+    puts "done"
+  else
+    puts "--------------------"
+    puts "solver stoped, but couldn't solved"
+  end
   solver.show
 
 end
 
 
 =begin
-
-combination2の実装
-
-group 2: [], [], [2, 8, 9], [], [], [], [8, 9], [], [8, 9],
-group 12: [], [], [], [], [8, 9], [8, 9], [5, 8, 9], [], [],
-group 13: [4, 7], [4, 7], [], [3, 4, 6, 8, 9], [1, 2, 4, 6, 8, 9], [2, 3, 6, 8, 9], [8, 9], [6, 9], [8, 9],
-group 20: [], [3, 6, 7, 9], [3, 7, 9], [3, 7, 8], [], [], [8, 9], [], [8, 9],
-group 22: [], [3, 4, 6, 8, 9], [4, 6], [8, 9], [1, 2, 4, 6, 8, 9], [4, 6], [8, 9], [2, 3, 6, 8, 9], [],
-group 25: [5, 8, 9], [8, 9], [], [], [6, 9], [], [], [8, 9], [],
-
-各グループに対して
-
-要素2個のセルを見つける
-同じ要素であり、セルが2個なら
-その候補はそれらのセルで共有される。他のセルではそれらの候補は除外して良い
-
-cell0 = cell1 = nil
 
 =end
