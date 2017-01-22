@@ -115,10 +115,11 @@ module Sudoku
 
     def scan_group(base_group)
 
+      # 基本フィルタ。候補が一つだけのセルは確定
       base_group.each do |c|
+        next if c.candidates.count == 0
 
         candidates = [1,2,3,4,5,6,7,8,9]
-
         find_groups(c).each do |g|
           g.each do |cell|
             next if cell.value == 0
