@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 require 'pp'
+require 'Logger'
+
 
 module Sudoku
   class Group < Array
@@ -32,12 +34,14 @@ module Sudoku
     attr_reader :value_changed
 
     def initialize
+      @logger = Logger.new(STDOUT)
+
       @cell  = []
       @group = []
 
       9.times do |y|
         9.times do |x|
-          @cell << Cell.new(x,y)
+          @cell << Cell.new(x, y)
         end
       end
 
@@ -69,14 +73,13 @@ module Sudoku
       end
 
       #  debug
-      @group.each do |g|
-        print "#{g.id}: "
-        g.each do |cell|
-          print "(#{cell.x}, #{cell.y}), "
-        end
-        print "\n"
-      end
-
+#      @group.each do |g|
+#        print "#{g.id}: "
+#        g.each do |cell|
+#          print "(#{cell.x}, #{cell.y}), "
+#        end
+#        print "\n"
+#      end
     end
 
     # cellが所属しているグループの配列を返す
@@ -94,10 +97,12 @@ module Sudoku
       File.open(filename, "r") do |f|
         y=0
         while line = f.gets
+          line.chomp!
           x=0
           line.each_char do |c|
             cell = @cell[y*9+x]
             if c != '.'
+#              puts "#{c}!"
               cell.value      = c.to_i
               cell.candidates = []
             end
@@ -140,10 +145,10 @@ module Sudoku
     end
 
     def exec_step
-      value_changed = false
+      @value_changed = FALSE
 
       # 基本フィルタ (確定候補をもとにふるい落とす)
-      filter0()
+      filter0
 
       # コンビネーション2のふるい
       @group.each do |g|
@@ -156,26 +161,26 @@ module Sudoku
       @cell.each do |cell|
         next if cell.value != 0 # すでに確定しているセルは除外
 
-pp "cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}"
-        # cellが所属しているグループの
+@logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
+
+        # cellが所属しているグループの各セルについて、確定していたらそのセルの値を候補から除外
         cell.groups.each do |group|
-          # 各セルについて、確定していたらそのセルの値を候補から除外
-pp " looking group #{group.id}"
+@logger.debug( " looking group #{group.id}")
           group.each do |c|
             next if c.value == 0
             cell.candidates.delete(c.value)
-pp "  delete value #{c.value}"
+@logger.debug( "  delete value #{c.value}")
           end
         end
 
-pp " updated candidates: #{cell.candidates}"
+@logger.debug( " updated candidates: #{cell.candidates}")
 
         # 確定したら更新
         if cell.candidates.count == 1
           cell.value      = cell.candidates[0]
           cell.candidates = []
-pp " fixed: #{cell.value}"
-          value_changed   = TRUE
+          @value_changed   = TRUE
+@logger.debug( " fixed: #{cell.value}")
         end
       end
     end
@@ -197,9 +202,10 @@ if __FILE__ == $0
 
   solver.load("ex1.sudoku")
 
-    solver.show
+  solver.show
+
   n = 0
-  while TRUE
+  while !solver.solved?
     puts ""
     puts "#{n}"
     puts "--------------------"
@@ -207,7 +213,8 @@ if __FILE__ == $0
     solver.exec_step
     solver.show
     solver.dump
-    break unless solver.value_changed
+    break if !solver.value_changed
+    n += 1
   end
 
   puts "--------------------\ndone."
