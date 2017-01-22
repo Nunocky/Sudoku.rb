@@ -35,7 +35,7 @@ module Sudoku
     end
 
     def fixed?
-      @value != 0
+      return @value != 0
     end
   end
 
@@ -74,19 +74,18 @@ module Sudoku
       @group[25].push(@cell[57], @cell[58], @cell[59], @cell[66], @cell[67], @cell[68], @cell[75], @cell[76], @cell[77])
       @group[26].push(@cell[60], @cell[61], @cell[62], @cell[69], @cell[70], @cell[71], @cell[78], @cell[79], @cell[80])
 
-# pp @group
       @cell.each do |c|
         c.groups = find_groups(c)
       end
 
       #  debug
-#      @group.each do |g|
-#        print "#{g.id}: "
-#        g.each do |cell|
-#          print "(#{cell.x}, #{cell.y}), "
-#        end
-#        print "\n"
-#      end
+      @group.each do |g|
+        print "#{g.id}: "
+        g.each do |cell|
+          print "(#{cell.x}, #{cell.y}), "
+        end
+        print "\n"
+      end
     end
 
     # cellが所属しているグループの配列を返す
@@ -156,8 +155,9 @@ module Sudoku
       value_changed |= filter0()
 
       @group.each do |g|
-        # コンビネーション2のふるい
+        # コンビネーションのふるい
         value_changed |= filter_combination2(g)
+        value_changed |= filter_combination3(g)
 
         # 最後の1要素
         value_changed |= filter_last_one(g)
@@ -174,9 +174,8 @@ module Sudoku
       value_changed = false
 
       @cell.each do |cell|
-        next if cell.value != 0 # すでに確定しているセルは除外
-
         @logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
+        next if cell.value != 0 # すでに確定しているセルは除外
 
         # cellが所属しているグループの各セルについて、確定していたらそのセルの値を候補から除外
         cell.groups.each do |group|
@@ -208,8 +207,6 @@ module Sudoku
     def filter_combination2(group)
       @logger.debug("filter_combination2: group #{group.id}")
       value_changed = false
-
-      # TODO 2個目のペアも見つけられるようにする
 
       (0...9).each do |i|
         pair0, pair1, pair2 = nil, nil, nil
@@ -245,6 +242,65 @@ module Sudoku
           next if c == pair0 || c == pair1
           c.candidates.delete(v0)
           c.candidates.delete(v1)
+#          value_changed = true
+          if c.candidates.count == 1
+            c.value = c.candidates[0]
+            value_changed = true
+            @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
+          end
+        end
+      end
+
+      value_changed
+    end
+
+    def filter_combination3(group)
+      @logger.debug("filter_combination3: group #{group.id}")
+      value_changed = false
+
+      (0...7).each do |i|
+        pair0, pair1, pair2, pair3 = nil, nil, nil, nil
+        v0, v1, v3 = 0, 0, 0
+
+        next if group[i].candidates.count != 3
+
+        # 最初のペア発見
+        pair0 = group[i]
+        v0    = pair0.candidates[0]
+        v1    = pair0.candidates[1]
+        v2    = pair0.candidates[2]
+
+        (i+1...8).each do |j|
+          cell = group[j]
+          next if group[j].candidates.count != 3
+          next if cell.candidates[0] == v0 && cell.candidates[1] == v1 && cell.candidates[2] == v2
+          # 2番めのペア発見
+          pair1 = group[j]
+
+          (j+1...9).each do |k|
+            cell = group[k]
+            next if group[k].candidates.count != 3
+            next if cell.candidates[0] == v0 && cell.candidates[1] == v1 && cell.candidates[2] == v2
+            # 3番め以降のペア発見
+            if pair2 == nil
+              pair2 = cell
+            else
+              pair3 = cell
+            end
+          end
+        end
+
+
+        # ペアが3個のときだけ処理
+        return if pair1 == nil || pair2 == nil || pair3 != nil
+
+        @logger.debug("group #{group.id}: combination3 (#{v0}, #{v1}, #{v2}) found.")
+
+        group.each do |c|
+          next if c == pair0 || c == pair1
+          c.candidates.delete(v0)
+          c.candidates.delete(v1)
+          c.candidates.delete(v2)
           if c.candidates.count == 1
             c.value = c.candidates[0]
             value_changed = true
@@ -257,7 +313,7 @@ module Sudoku
     end
 
     def filter_last_one(group)
-
+      @logger.debug("filter_last_one: group #{group.id}")
       value_changed = false
       cell_last_one = nil
       candidates = [1,2,3,4,5,6,7,8,9]
@@ -270,11 +326,11 @@ module Sudoku
         end
       end
 
-      if candidates.count == 1 && cell_last_one != nil
+#      @logger.debug("#{candidates}")
+      if candidates.count == 1 # && cell_last_one != nil
+        @logger.debug( " fixed[2]: cell(#{cell_last_one.x}, #{cell_last_one.y}) = #{candidates[0]}")
         cell_last_one.value = candidates[0]
         value_changed = true
-        @logger.debug("filter_last_one: group #{group.id}")
-        @logger.debug( " fixed[2]: cell(#{cell_last_one.x}, #{cell_last_one.y}) = #{cell_last_one.value}")
       end
 
       return value_changed
@@ -296,6 +352,7 @@ if __FILE__ == $0
   solver.show
 
   n = 0
+  count = 0
   while !solver.solved?
     puts ""
     puts "#{n}"
@@ -322,10 +379,7 @@ end
 
 =begin
 
-group 13: [4, 7], [4, 7], [], [3, 8, 9], [1, 2, 8, 9], [2, 3, 8, 9], [8, 9], [], [8, 9], 
-2個めのペア[8,9]を見つけられていない
-
-group 22: [], [3, 8, 9], [4, 6], [8, 9], [1, 2, 8, 9], [4, 6], [8, 9], [2, 3, 8, 9], [], 
-2個めのペア[8,9]を見つけられていない
+# combination3の対象
+group 24: [], [], [1, 2, 5], [1, 5, 8], [1, 2, 5], [1, 2, 5], [3, 8], [], [], 
 
 =end
