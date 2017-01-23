@@ -60,7 +60,7 @@ module Sudoku
         # row
         @group[n/9]     << @cell[n]
         # col
-        @group[9 + n%9] << @cell[n]
+        @group[9 + (n%9)] << @cell[n]
       end
 
       # 3x3 block
@@ -79,6 +79,7 @@ module Sudoku
       end
 
       #  debug
+      puts "Group"
       @group.each do |g|
         print "#{g.id}: "
         g.each do |cell|
@@ -86,6 +87,8 @@ module Sudoku
         end
         print "\n"
       end
+      puts "--------------------------------------------------------------------------------"
+
     end
 
     # cellが所属しているグループの配列を返す
@@ -121,12 +124,28 @@ module Sudoku
       n = 0
       @group.each do |g|
         print "group #{n}: "
+
         g.each do |cell|
           print "#{cell.candidates}, "
         end
         n += 1
         puts ""
       end
+
+#      n = 0
+#      @group.each do |g|
+#        print "group #{n} fixed: "
+#        g.each do |cell|
+#          if cell.fixed?
+#            print "#{cell.value} "
+#          else 
+#            print "  "
+#          end
+#        end
+#        n += 1
+#        puts ""
+#      end
+
     end
 
     def show
@@ -155,12 +174,13 @@ module Sudoku
       value_changed |= filter0()
 
       @group.each do |g|
-        # コンビネーションのふるい
-        value_changed |= filter_combination2(g)
-        value_changed |= filter_combination3(g)
-
-        # 最後の1要素
+        value_changed |= filter_combination(g, 2)
+        value_changed |= filter_combination(g, 3)
         value_changed |= filter_last_one(g)
+      end
+
+      @cell.each do |cell|
+        value_changed |= filter_one_candidate(cell)
       end
 
       value_changed
@@ -168,148 +188,85 @@ module Sudoku
 
     # 基本フィルタ。候補が一つだけのセルは確定
     def filter0()
-      @logger.debug("filter0")
+@logger.debug("filter0")
       updated = false
-
       value_changed = false
 
       @cell.each do |cell|
-        @logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
+#@logger.debug("cell(#{cell.x}, #{cell.y}), candidates: #{cell.candidates}")
         next if cell.value != 0 # すでに確定しているセルは除外
 
         # cellが所属しているグループの各セルについて、確定していたらそのセルの値を候補から除外
         cell.groups.each do |group|
-          @logger.debug( " looking group #{group.id}")
+@logger.debug( " looking group #{group.id}")
           group.each do |c|
             next if c.value == 0
             if cell.candidates.include?(c.value)
               cell.candidates.delete(c.value)
               updated = true
-              @logger.debug( "  delete value #{c.value}")
+@logger.debug( "  delete value #{c.value}")
             end
           end
         end
 
-        @logger.debug( " updated candidates: #{cell.candidates}")        if updated
+#@logger.debug( " updated candidates: #{cell.candidates}") if updated
 
         # 確定したら更新
         if cell.candidates.count == 1
           cell.value = cell.candidates[0]
           value_changed = true
-          @logger.debug( " fixed[0]: cell(#{cell.x}, #{cell.y}) = #{cell.value}")
+@logger.debug( " fixed[0]: cell(#{cell.x}, #{cell.y}) = #{cell.value}")
         end
       end
 
       return value_changed
     end
 
-    # 同一のn個の候補を持つセル→そのセルがn個ならそれらのセルでその候補値を専有できる。グループ内でその候補値は除外
-    def filter_combination2(group)
-      @logger.debug("filter_combination2: group #{group.id}")
+    # 同一のn個の候補を持つセルがグループ内で n個存在するなら、それら
+    # のセルでその候補値を専有できる → グループ内でその候補値は除外
+    def filter_combination(group, n)
+#      @logger.debug("filter_combination#{n}: group #{group.id}")
       value_changed = false
 
       (0...9).each do |i|
-        pair0, pair1, pair2 = nil, nil, nil
-        v0, v1 = 0, 0
-
-        next if group[i].candidates.count != 2
-
-        # 最初のペア発見
-        pair0 = group[i]
-        v0    = pair0.candidates[0]
-        v1    = pair0.candidates[1]
+        cell_ary = []
+        pair = cell = group[i]
+        next if cell.candidates.count != n
+        cell_ary << cell        # 最初のペア発見
 
         (i+1...9).each do |j|
           cell = group[j]
-          next if cell.candidates.count != 2
-
-          # 2個目以降のペア発見
-          if cell.candidates[0] == v0 && cell.candidates[1] == v1
-            if pair1 == nil
-              pair1 = cell
-            else
-              pair2 = cell
-            end
+          if cell.candidates === cell_ary[0].candidates
+            cell_ary << cell    # 2個目以降のペア発見
           end
         end
 
+
         # ペアが2個のときだけ処理
-        return if pair1 == nil || pair2 != nil
+        next if cell_ary.count != n
 
-        @logger.debug("group #{group.id}: combination2 (#{v0}, #{v1}) found.")
-
-        group.each do |c|
-          next if c == pair0 || c == pair1
-          c.candidates.delete(v0)
-          c.candidates.delete(v1)
-#          value_changed = true
-          if c.candidates.count == 1
-            c.value = c.candidates[0]
-            value_changed = true
-            @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
+#        @logger.debug("group #{group.id}: combination#{n} (#{pair.candidates.join(", ")}) found.")
+  
+        group.each do |cell|
+          next if cell_ary.include?(cell)
+          cell_ary[0].candidates.each do |v|
+            cell.candidates.delete(v) if cell.candidates.include?(v)
+            @logger.debug( " delete value #{cell.value}")
           end
+
+          value_changed |= filter_one_candidate(cell)
         end
       end
 
       value_changed
     end
 
-    def filter_combination3(group)
-      @logger.debug("filter_combination3: group #{group.id}")
-      value_changed = false
-
-      (0...7).each do |i|
-        pair0, pair1, pair2, pair3 = nil, nil, nil, nil
-        v0, v1, v3 = 0, 0, 0
-
-        next if group[i].candidates.count != 3
-
-        # 最初のペア発見
-        pair0 = group[i]
-        v0    = pair0.candidates[0]
-        v1    = pair0.candidates[1]
-        v2    = pair0.candidates[2]
-
-        (i+1...8).each do |j|
-          cell = group[j]
-          next if group[j].candidates.count != 3
-          next if cell.candidates[0] == v0 && cell.candidates[1] == v1 && cell.candidates[2] == v2
-          # 2番めのペア発見
-          pair1 = group[j]
-
-          (j+1...9).each do |k|
-            cell = group[k]
-            next if group[k].candidates.count != 3
-            next if cell.candidates[0] == v0 && cell.candidates[1] == v1 && cell.candidates[2] == v2
-            # 3番め以降のペア発見
-            if pair2 == nil
-              pair2 = cell
-            else
-              pair3 = cell
-            end
-          end
-        end
-
-
-        # ペアが3個のときだけ処理
-        return if pair1 == nil || pair2 == nil || pair3 != nil
-
-        @logger.debug("group #{group.id}: combination3 (#{v0}, #{v1}, #{v2}) found.")
-
-        group.each do |c|
-          next if c == pair0 || c == pair1
-          c.candidates.delete(v0)
-          c.candidates.delete(v1)
-          c.candidates.delete(v2)
-          if c.candidates.count == 1
-            c.value = c.candidates[0]
-            value_changed = true
-            @logger.debug( " fixed[1]: cell(#{c.x}, #{c.y}) = #{c.value}")
-          end
-        end
-      end
-
-      value_changed
+    def filter_one_candidate(cell)
+      return false if cell.fixed?
+      return false if 1 < cell.candidates.count
+      cell.value = cell.candidates[0]
+@logger.debug( " fixed[3]: cell(#{cell.x}, #{cell.y}) = #{cell.value}")
+      true
     end
 
     def filter_last_one(group)
@@ -318,16 +275,21 @@ module Sudoku
       cell_last_one = nil
       candidates = [1,2,3,4,5,6,7,8,9]
 
+      group.each do |c|
+#      @logger.debug( "   #{c.value}")
+      end
+#      @logger.debug( " #{candidates}")
+
       group.each do |cell|
         if cell.fixed?
+          @logger.debug( " delete value #{cell.value}")
           candidates.delete(cell.value)
         else
           cell_last_one = cell
         end
       end
 
-#      @logger.debug("#{candidates}")
-      if candidates.count == 1 # && cell_last_one != nil
+      if candidates.count == 1
         @logger.debug( " fixed[2]: cell(#{cell_last_one.x}, #{cell_last_one.y}) = #{candidates[0]}")
         cell_last_one.value = candidates[0]
         value_changed = true
@@ -381,5 +343,8 @@ end
 
 # combination3の対象
 group 24: [], [], [1, 2, 5], [1, 5, 8], [1, 2, 5], [1, 2, 5], [3, 8], [], [], 
+
+
+
 
 =end
