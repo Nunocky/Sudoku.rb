@@ -167,15 +167,39 @@ module Sudoku
       true
     end
 
-    def exec_step
+    def try_solve(level)
+      n = 0
+      while !solved?
+        puts ""
+        puts "#{n}"
+        puts "--------------------"
+
+        value_changed = exec_step(level)
+        show
+        dump
+        n += 1
+        break if value_changed == false
+      end
+
+      return solved?
+    end
+
+
+    def exec_step(level)
       value_changed = false
 
       # 基本フィルタ (確定候補をもとにふるい落とす)
       value_changed |= filter0()
 
+      if 0 < level
+        @group.each do |g|
+          value_changed |= filter_combination(g, 2)
+          value_changed |= filter_combination(g, 3)
+          value_changed |= filter_last_one(g)
+        end
+      end
+
       @group.each do |g|
-        value_changed |= filter_combination(g, 2)
-        value_changed |= filter_combination(g, 3)
         value_changed |= filter_last_one(g)
       end
 
@@ -242,11 +266,10 @@ module Sudoku
         end
 
 
-        # ペアが2個のときだけ処理
+        # ペアが n個のときだけ処理
         next if cell_ary.count != n
 
 #        @logger.debug("group #{group.id}: combination#{n} (#{pair.candidates.join(", ")}) found.")
-  
         group.each do |cell|
           next if cell_ary.include?(cell)
           cell_ary[0].candidates.each do |v|
@@ -275,11 +298,6 @@ module Sudoku
       cell_last_one = nil
       candidates = [1,2,3,4,5,6,7,8,9]
 
-      group.each do |c|
-#      @logger.debug( "   #{c.value}")
-      end
-#      @logger.debug( " #{candidates}")
-
       group.each do |cell|
         if cell.fixed?
           @logger.debug( " delete value #{cell.value}")
@@ -299,42 +317,83 @@ module Sudoku
     end
 
 
+    def depth_first_search(n=0)
+@logger.debug("DFS(#{n})")
+
+      return true if n == @cell.count # 全ての配置がvalid → true
+
+      cell           = @cell[n]
+      candidates_bak = @cell[n].candidates
+
+      # fixedなら進む
+      return depth_first_search(n+1) if cell.fixed?
+
+      # 候補を置いてみて矛盾がなければ進む
+      cell.candidates.each do |v|
+        cell.value = v
+        if board_valid?
+          solved = depth_first_search(n+1)
+          return true if solved
+        end
+      end
+
+      # どの候補も当てはまらなかったので状態を元に戻してfalseを返す
+      cell.value = 0
+      cell.candidates = candidates_bak
+      return false
+    end
+
+    def board_valid?
+      # fixされた内容に矛盾がなければ trueを返す
+      @group.each do |group|
+        ary = []
+        group.each do |cell|
+          next if !cell.fixed?
+          return false if ary.include?(cell.value)
+          ary << cell.value
+        end
+      end
+      true
+    end
+
   end
 end
 
 
-
-
 if __FILE__ == $0
+  LEVEL_EASY   = 0
+  LEVEL_MEDIUM = 1
+
   # ファイルを直接実行した時のコードをここに
   solver = Sudoku::Solver.new
 
   solver.load(ARGV[0])
 
-  solver.show
+  message = ""
 
-  n = 0
-  count = 0
-  while !solver.solved?
-    puts ""
-    puts "#{n}"
-    puts "--------------------"
-
-    value_changed = solver.exec_step
-    solver.show
-    solver.dump
-    n += 1
-    break if value_changed == false
-  end
+  solver.try_solve(LEVEL_EASY)
 
   if solver.solved?
-    puts "--------------------"
-    puts "done"
+    message = "Level: easy"
   else
-    puts "--------------------"
-    puts "solver stoped, but couldn't solved"
+    solver.try_solve(LEVEL_MEDIUM)
+    if solver.solved?
+      message = "Level: medium"
+    else
+      solver.depth_first_search()
+
+      if solver.solved?
+        message = "Level: hard"
+      else
+        message = "solver stoped, but couldn't solved"
+      end
+    end
   end
+
+  puts "----------------------------------------"
+  puts message
   solver.show
+
 
 end
 
